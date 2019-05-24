@@ -26,6 +26,9 @@
 
     elseif($AlwaysOn)
     {
+        # Used to prevent copying logins twice
+        $LoginsCopied = @();
+
         # If AlwaysOn is specified, but no Source is given, find the local SQL Instance
         if(!$Source)
         {
@@ -66,31 +69,64 @@
             Write-Host '' -ForegroundColor Red;   
         }
 
-        # Initiate Hash Table for the logins we need to copy. This is so we don't duplicate the work
-        # As you can have a server level login being mapped to multiple AG databases
-        $LoginsToCopy = @{};
-
         # Loop through the Avaialability Group list and extract login list
         foreach($AG in $AGList)
         {
             if($AG.LocalReplicaRole -eq 'Primary')
             {
                 $AGName = $AG.Name
-                $AGDatabases = $AG.AvailabilityDatabases.Name
+                $AGDatabases = $AG.AvailabilityDatabases | Select Name -Unique
 
+                # Gets AG secondary node by removing the current node (primary) from the array
+                $AGDest = $AG.AvailabilityReplicas.Name | ?{$_ -ne $AG.SQLInstance}
+                 
+                # Create array of logins to pass to Copy-DBALogin
+                $LoginsToCopy = @();
+                
                 # Gets DB User + Server Logins for all DBs in AG. Only where the account has DB access and a relevant Server Login 
-                $DBLogins = Get-DbaDbUser -SqlInstance $Source -Database $AGDatabases | ?{$_.HasDBAccess -eq $true -and $_.Login -ne ''}
+                $AGDBLogins = Get-DbaDbUser -SqlInstance $Source -Database $AGDatabases | ?{$_.HasDBAccess -eq $true -and $_.Login -ne ''} | Select Login -Unique
 
-                Get-DBADBUser -SqlInstance $Source -Database
+                # Loop the database 
+                foreach($Login in $AGDBLogins)
+                {
+                    if($LoginTracker -contains $Login)
+                    {
+                        # Login has already been successfully copied
+                        Write-Verbose -Message "Login - $($Login) - has already been copied. Skipping.";
+                    }
+                    elseif($LoginsToCopy -contains $Login)
+                    {
+                        # Login is currently in the queue to be copied
+                        Write-Verbose -Message "Login - $($Login) - is already in the queue to be copied. Skipping.";
+                    }
+                    else
+                    {
+                        # Login hasn't been copied or queued, add to copy queue
+                        $LoginsToCopy += $Login;
+                    }
+                } 
 
-                <#
+                # Attempt to copy the logins in the $LoginsToCopy queue
+                try
+                {
+                    # Copy the logins from the primary to the secondarys
+                    Copy-DbaLogin -Source $Source -Destination $AGDest -Login $LoginsToCopy;
 
-                    LOOK AT USING PS TO SELECT ALL AG'S WITH ALL DATABASES WHERE REPLICA ROLE IS PRIMARY
+                    # Synchronise the logins between the primary and secondarys
+                    Sync-DbaLoginPermission -Source $Source -Destination $AGDest -Login $LoginsToCopy;
 
-                    $ag = get-dbaavailabilitygroup
-                    $ag.availabilitydatabases | Seelct Parent, Name etc etc....
-
-                #>
+                    # Add the logins to the $LoginTracker now they have been synchronised
+                    $LoginTracker += $LoginsToCopy;
+                }
+                catch
+                {
+                    Write-Host "Error whilst copying / synchronising the logins from [$($Source)] to [$($AGDest)]" -ForegroundColor Red;
+                }
+                finally
+                {
+                    # Clear the LoginsToCopy queue
+                    $LoginsToCopy = @();
+                }
             }
             elseif($AG.LocalReplicaRole -eq 'Secondary')
             {
