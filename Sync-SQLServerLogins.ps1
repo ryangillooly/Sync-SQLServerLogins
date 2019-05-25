@@ -89,7 +89,7 @@
                 # Loop the database 
                 foreach($Login in $AGDBLogins)
                 {
-                    if($LoginTracker -contains $Login)
+                    if($LoginsCopied -contains $Login)
                     {
                         # Login has already been successfully copied
                         Write-Verbose -Message "Login - $($Login) - has already been copied. Skipping.";
@@ -116,7 +116,7 @@
                     Sync-DbaLoginPermission -Source $Source -Destination $AGDest -Login $LoginsToCopy;
 
                     # Add the logins to the $LoginTracker now they have been synchronised
-                    $LoginTracker += $LoginsToCopy;
+                    $LoginsCopied += $LoginsToCopy;
                 }
                 catch
                 {
