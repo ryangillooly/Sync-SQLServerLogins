@@ -68,7 +68,7 @@ function Sync-SQLServerLogins
             Write-Host '' -ForegroundColor Red;   
         }
 
-        # Loop through the Avaialability Group list and extract login list
+        # Loop through the Availability Group list and extract login list
         foreach($AG in $AGList.SqlInstance)
         {
             if($AG.LocalReplicaRole -eq 'Primary')
@@ -93,11 +93,13 @@ function Sync-SQLServerLogins
                     {
                         # Login has already been successfully copied
                         Write-Verbose -Message "Login - $($Login) - has already been copied. Skipping.";
+			continue;
                     }
                     elseif($LoginsToCopy -contains $Login)
                     {
                         # Login is currently in the queue to be copied
                         Write-Verbose -Message "Login - $($Login) - is already in the queue to be copied. Skipping.";
+			continue;
                     }
                     else
                     {
@@ -122,15 +124,10 @@ function Sync-SQLServerLogins
                 {
                     Write-Host "Error whilst copying / synchronising the logins from [$($Source)] to [$($AGDest)]" -ForegroundColor Red;
                 }
-                finally
-                {
-                    # Clear the LoginsToCopy queue
-                    $LoginsToCopy = @();
-                }
             }
             elseif($AG.LocalReplicaRole -eq 'Secondary')
             {
-                Write-Host "The replica role for AG - $($AG.AvailabilityGroup) - is Secondary. Skipped." -ForegroundColor Orange;
+                Write-Verbose "The replica role for AG - $($AG.AvailabilityGroup) - is Secondary. Skipped." -ForegroundColor Orange;
                 continue;
             }
         }
