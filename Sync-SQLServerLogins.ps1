@@ -1,6 +1,5 @@
-﻿function Sync-SQLServerLogins
+function Sync-SQLServerLogins
 {
-
     [CmdletBinding(SupportsShouldProcess)]
     param 
     (
@@ -18,7 +17,7 @@
     if($Source -and $Destination)
     {
         # Copy logins from the Source SQL Server to the Destination SQL Server(s). Login removal is not supported.
-        Copy-DbaLogin -Source $Source -Destination $Destination -Login $IncludeLogins -ExcludeLogin $ExcludeLogins;
+        Copy-DbaLogin -Source $Source -Destination $Destination -Login $IncludeLogins -ExcludeLogin $ExcludeLogins -ExcludeSystemLogins;
         
         # Synchronise login permissions from the Source SQL Server to the Destination SQL Server(s).
         Sync-DbaLoginPermission -Source $Source -Destination $Destination -Login $IncludeLogins -ExcludeLogin $ExcludeLogins;
@@ -70,21 +69,22 @@
         }
 
         # Loop through the Avaialability Group list and extract login list
-        foreach($AG in $AGList)
+        foreach($AG in $AGList.SqlInstance)
         {
             if($AG.LocalReplicaRole -eq 'Primary')
             {
-                $AGName = $AG.Name
-                $AGDatabases = $AG.AvailabilityDatabases | Select Name -Unique
+                $AGName           = $AG.Name
+                $AGDatabases      = $AG.AvailabilityDatabases.Name | Select -Unique
+                $AGCurrentPrimary = $AG.SQLInstance
 
                 # Gets AG secondary node by removing the current node (primary) from the array
-                $AGDest = $AG.AvailabilityReplicas.Name | ?{$_ -ne $AG.SQLInstance}
+                $AGDest = $AG.AvailabilityReplicas.Name | ?{$_ -ne $AGCurrentPrimary}
                  
                 # Create array of logins to pass to Copy-DBALogin
                 $LoginsToCopy = @();
                 
                 # Gets DB User + Server Logins for all DBs in AG. Only where the account has DB access and a relevant Server Login 
-                $AGDBLogins = Get-DbaDbUser -SqlInstance $Source -Database $AGDatabases | ?{$_.HasDBAccess -eq $true -and $_.Login -ne ''} | Select Login -Unique
+                $AGDBLogins = Get-DbaDbUser -SqlInstance $Source -Database $AGDatabases -ExcludeSystemUser | ?{$_.HasDBAccess -eq $true -and $_.Login -ne ''} | Select -ExpandProperty Login -Unique
 
                 # Loop the database 
                 foreach($Login in $AGDBLogins)
@@ -115,7 +115,7 @@
                     # Synchronise the logins between the primary and secondarys
                     Sync-DbaLoginPermission -Source $Source -Destination $AGDest -Login $LoginsToCopy;
 
-                    # Add the logins to the $LoginTracker now they have been synchronised
+                    # Add the logins to the $LoginsCopied variable now they have been synchronised
                     $LoginsCopied += $LoginsToCopy;
                 }
                 catch
@@ -139,6 +139,7 @@
     # If neither Source/Dest/AlwaysOn provided, throw error
     else
     {
-        Write-Host 'Please provide a value for $Source and $Destination, otherwise enable the $AlwaysOn switch' -ForegroundColor Red
+        Write-Host 'Please provide a value for $Source and $Destination, otherwise enable the $AlwaysOn switch' -ForegroundColor Red;
+        Exit;
     }
 }
