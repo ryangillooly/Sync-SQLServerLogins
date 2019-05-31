@@ -99,7 +99,7 @@ function Sync-SQLServerLogins
                     {
                         # Login is currently in the queue to be copied
                         Write-Verbose -Message "Login - $($Login) - is already in the queue to be copied. Skipping.";
-			continue;
+Continue;
                     }
                     else
                     {
@@ -127,7 +127,7 @@ function Sync-SQLServerLogins
             }
             elseif($AG.LocalReplicaRole -eq 'Secondary')
             {
-                Write-Verbose "The replica role for AG - $($AG.AvailabilityGroup) - is Secondary. Skipped." -ForegroundColor Orange;
+                Write-Host "The replica role for AG - $($AG.AvailabilityGroup) - is Secondary. Skipped." -ForegroundColor Orange;
                 continue;
             }
         }
