@@ -1,3 +1,4 @@
+<#
 function Sync-SQLServerLogins
 {
     [CmdletBinding(SupportsShouldProcess)]
@@ -12,15 +13,88 @@ function Sync-SQLServerLogins
         [switch]                 $AllAvailabilityGroups,
         [string[]]               $AvailabilityGroups
     )
+#>
+
+    # TESTING PARAMS #
+    $Source      = 'PreProd-SQL02A'
+    $Destination = 'PreProd-SQL02B'
+    $IncludeLogins = @('RGTestLogin','RGTestLogin2')
+    $AlwaysOn = $null
+    $AllAvailabilityGroups = $null
+    $AvaialbilityGroups = $nulll
+
+    # Set up data tables
+    $LoginTable = New-Object System.Data.DataTable;
+    [void]$LoginTable.Columns.Add("Instance")
+    [void]$LoginTable.Columns.Add("InstanceStatus")
+    [void]$LoginTable.Columns.Add("LoginName")
+    [void]$LoginTable.Columns.Add("LoginHash")
+    [void]$LoginTable.Columns.Add("LoginSID")
+    
 
     # Is the Source and Destination variables provided?
     if($Source -and $Destination)
     {
         # Copy logins from the Source SQL Server to the Destination SQL Server(s). Login removal is not supported.
-        Copy-DbaLogin -Source $Source -Destination $Destination -Login $IncludeLogins -ExcludeLogin $ExcludeLogins -ExcludeSystemLogins;
+        $SourceLogins = Copy-DbaLogin -Source $Source -Destination $Destination -Login $IncludeLogins -ExcludeLogin $ExcludeLogins -ExcludeSystemLogins -Verbose;
         
         # Synchronise login permissions from the Source SQL Server to the Destination SQL Server(s).
-        Sync-DbaLoginPermission -Source $Source -Destination $Destination -Login $IncludeLogins -ExcludeLogin $ExcludeLogins;
+        Sync-DbaLoginPermission -Source $Source -Destination $Destination -Login $IncludeLogins -ExcludeLogin $ExcludeLogins -Verbose;
+    
+
+        <# GET SOURCE LOGINS + HASHED PASSWORDS #>
+        $SourceSQLLogins = (Export-DbaLogin -SqlInstance $Source -Login $SourceLogins.Name -ExcludeGoBatchSeparator) -split "`r`n"
+        foreach($SourceLine in $SourceSQLLogins)
+        {
+           if($SourceLine -like 'IF NOT EXISTS*')
+            {
+                # The square brackets are pre-fixed with a backslash as an escape character
+                $SourceLogin      = (($SourceLine -split 'CREATE LOGIN \[')[1] -split '\] WITH PASSWORD')[0] 
+                $SourceHashedPass = (($SourceLine -split 'PASSWORD = '    )[1] -split ' HASHED'         )[0]
+                $SourceSID        = (($SourceLine -split 'SID = '         )[1] -split ', DEFAULT'       )[0]
+
+                $LoginTable.Rows.Add($Source, 'Source', $SourceLogin, $SourceHashedPass, $SourceSID);
+            }
+        }
+
+         <# GET SOURCE LOGINS + HASHED PASSWORDS #>
+        $DestSQLLogins = (Export-DbaLogin -SqlInstance $Destination -Login $SourceLogins.Name -ExcludeGoBatchSeparator) -split "`r`n"
+        foreach($DestLine in $DestSQLLogins)
+        {
+           if($DestLine -like 'IF NOT EXISTS*')
+            {
+                # The square brackets are pre-fixed with a backslash as an escape character
+                $DestLogin      = (($DestLine -split 'CREATE LOGIN \[')[1] -split '\] WITH PASSWORD')[0] 
+                $DestHashedPass = (($DestLine -split 'PASSWORD = '    )[1] -split ' HASHED'         )[0]
+                $DestSID        = (($DestLine -split 'SID = '         )[1] -split ', DEFAULT'       )[0]
+
+                $LoginTable.Rows.Add($Destination, 'Destination', $DestLogin, $DestHashedPass, $DestSID);
+            }
+        }
+
+
+
+       ##############################################################################
+            $test = $LoginTable.Select("LoginName = 'RGTestLogin'")
+
+            if($test[0].LoginHash -eq $test[1].LoginHash)
+            {
+                write-host "Passwords are the same for $($test[0].LoginName)" -ForegroundColor Green
+            }
+            else
+            {
+               Write-Host "Passwords are NOT the same for $($test[0].LoginName)" -ForegroundColor Red
+            }
+
+             if($test[0].LoginSID -eq $test[1].LoginSID)
+            {
+                write-host "SIDs are the same for $($test[0].LoginName)" -ForegroundColor Green
+            }
+            else
+            {
+               Write-Host "SIDs are NOT the same for $($test[0].LoginName)" -ForegroundColor Red
+            }
+       ##############################################################################
     }
 
     elseif($AlwaysOn)
@@ -93,13 +167,13 @@ function Sync-SQLServerLogins
                     {
                         # Login has already been successfully copied
                         Write-Verbose -Message "Login - $($Login) - has already been copied. Skipping.";
-			continue;
+			            Continue;
                     }
                     elseif($LoginsToCopy -contains $Login)
                     {
                         # Login is currently in the queue to be copied
                         Write-Verbose -Message "Login - $($Login) - is already in the queue to be copied. Skipping.";
-Continue;
+                        Continue;
                     }
                     else
                     {
@@ -139,4 +213,4 @@ Continue;
         Write-Host 'Please provide a value for $Source and $Destination, otherwise enable the $AlwaysOn switch' -ForegroundColor Red;
         Exit;
     }
-}
+#}
